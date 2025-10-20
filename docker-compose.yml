@@ -1,0 +1,23 @@
+
+services:
+  gitlab:
+    image: gitlab/gitlab-ce:17.6.2-ce.0
+    container_name: gitlab
+    restart: always
+    ports:
+      - "8000:80"
+    volumes:
+      - /home/isabel/gitlab/config:/etc/gitlab
+      - /home/isabel/gitlab/logs:/var/log/gitlab
+      - /home/isabel/gitlab/data:/var/opt/gitlab
+
+  gitlab-runner:
+    image: gitlab/gitlab-runner:latest
+    container_name: gitlab-runner
+    restart: unless-stopped
+    depends_on:
+      - gitlab
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/isabel/gitlab/runner-config.toml:/etc/gitlab-runner/config.toml
+   
