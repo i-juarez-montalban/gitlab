@@ -10,7 +10,8 @@ services:
       - /home/isabel/gitlab/config:/etc/gitlab
       - /home/isabel/gitlab/logs:/var/log/gitlab
       - /home/isabel/gitlab/data:/var/opt/gitlab
-
+    networks: [default]
+ 
   gitlab-runner:
     image: gitlab/gitlab-runner:latest
     container_name: gitlab-runner
@@ -20,4 +21,88 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /home/isabel/gitlab/runner-config.toml:/etc/gitlab-runner/config.toml
-   
+    networks: [default]
+ 
+  defectdojo-postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: defectdojo
+      POSTGRES_USER: defectdojo
+      POSTGRES_PASSWORD: ${DD_DATABASE_PASSWORD:-defectdojo}
+    volumes:
+      - ./defectdojo/postgres:/var/lib/postgresql/data
+    networks: [default]
+ 
+  defectdojo-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - ./defectdojo/redis:/data
+    networks: [default]
+ 
+  defectdojo-django:
+    image: defectdojo/defectdojo-django:latest
+    restart: unless-stopped
+    depends_on:
+      - defectdojo-postgres
+      - defectdojo-redis
+    environment:
+      DD_DATABASE_URL: "postgresql://defectdojo:${DD_DATABASE_PASSWORD:-defectdojo}@defectdojo-postgres:5432/defectdojo"
+      DD_CELERY_BROKER_URL: "redis://defectdojo-redis:6379/0"
+      DD_SECRET_KEY: "${DD_SECRET_KEY:-please_change_me}"      # <-- cambia
+      DD_ALLOWED_HOSTS: "localhost,127.0.0.1,defectdojo-nginx"
+      DD_CSRF_TRUSTED_ORIGINS: "http://localhost:8888,http://127.0.0.1:8888"
+      DD_SITE_URL: "http://localhost:8888"
+      DJANGO_SUPERUSER_USERNAME: "${DD_ADMIN_USER:-admin}"
+      DJANGO_SUPERUSER_PASSWORD: "${DD_ADMIN_PASS:-admin123}"  # <-- cambia
+      DJANGO_SUPERUSER_EMAIL:    "${DD_ADMIN_MAIL:-admin@example.com}"
+    volumes:
+      - ./defectdojo/media:/app/media
+    networks: [default]
+ 
+  defectdojo-celeryworker:
+    image: defectdojo/defectdojo-django:latest
+    restart: unless-stopped
+    command: ['/bin/bash','-lc','/entrypoint.sh celery_worker']
+    depends_on:
+      - defectdojo-django
+      - defectdojo-redis
+    environment:
+      DD_DATABASE_URL: "postgresql://defectdojo:${DD_DATABASE_PASSWORD:-defectdojo}@defectdojo-postgres:5432/defectdojo"
+      DD_CELERY_BROKER_URL: "redis://defectdojo-redis:6379/0"
+      DD_SECRET_KEY: "${DD_SECRET_KEY:-please_change_me}"
+    networks: [default]
+ 
+  defectdojo-celerybeat:
+    image: defectdojo/defectdojo-django:latest
+    restart: unless-stopped
+    command: ['/bin/bash','-lc','/entrypoint.sh celery_beat']
+    depends_on:
+      - defectdojo-django
+      - defectdojo-redis
+    environment:
+      DD_DATABASE_URL: "postgresql://defectdojo:${DD_DATABASE_PASSWORD:-defectdojo}@defectdojo-postgres:5432/defectdojo"
+      DD_CELERY_BROKER_URL: "redis://defectdojo-redis:6379/0"
+      DD_SECRET_KEY: "${DD_SECRET_KEY:-please_change_me}"
+    networks: [default]
+ 
+  defectdojo-nginx:
+    image: defectdojo/defectdojo-nginx:latest
+    restart: unless-stopped
+    depends_on:
+      - defectdojo-django
+    environment:
+      DD_UWSGI_HOST: "defectdojo-django"
+      DD_UWSGI_PORT: "3031"
+    ports:
+      - "8888:8080"
+    volumes:
+      - ./defectdojo/media:/usr/share/nginx/html/media
+    networks: [default]
+ 
+networks:
+  default:
+    driver: bridge
+    name: gitlab_gitlab_net
