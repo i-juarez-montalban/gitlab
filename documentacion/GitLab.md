@@ -1,4 +1,3 @@
-
 # Instalación y securización de Gitlab
 ## Medidas de seguridad aplicadas y su impacto
 
